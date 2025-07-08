@@ -9,6 +9,8 @@ from flask import Flask, request, render_template, jsonify, send_from_directory,
 from flask.json.provider import DefaultJSONProvider
 import logging
 from flask.logging import default_handler
+import firebase_admin
+from firebase_admin import credentials, db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -107,6 +109,17 @@ from duplication_detection_code import get_duplicate_detector
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'dev-secret-key-replace-later'
+
+# Initialize Firebase Admin SDK
+try:
+    cred = credentials.Certificate('firebase-service-account.json')
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': 'https://enivaran-1e89f-default-rtdb.firebaseio.com'
+    })
+    app.logger.info("Firebase Admin SDK initialized successfully.")
+except Exception as e:
+    app.logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
+    raise e
 
 # Initialize the duplicate detector
 detector = get_duplicate_detector(location_threshold=0.1)  # 100-meter threshold
@@ -220,11 +233,17 @@ if not app.debug:
 APP_DB = os.path.join(BASE_DIR, 'enivaran.db')
 
 def dict_factory(cursor, row):
-    """Convert SQLite Row to dictionary with proper datetime handling"""
+    """
+    Convert SQLite Row to dictionary with improved timestamp handling and error logging.
+    Invalid timestamps are preserved as strings for debugging and logged as warnings.
+    """
     d = {}
     for idx, col in enumerate(cursor.description):
         value = row[idx]
-        if isinstance(value, str) and col[0] in ['submitted_at', 'detected_at', 'created_at', 'last_updated']:
+        column_name = col[0]
+        
+        # Handle timestamp fields
+        if isinstance(value, str) and column_name in ['submitted_at', 'detected_at', 'created_at', 'last_updated']:
             try:
                 # Try parsing with microseconds
                 value = datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S.%f')
@@ -233,8 +252,15 @@ def dict_factory(cursor, row):
                     # Try parsing without microseconds
                     value = datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
                 except ValueError:
-                    value = datetime.datetime.now()
-        d[col[0]] = value
+                    # Log the invalid timestamp and preserve original value
+                    app.logger.warning(
+                        f"Invalid timestamp format in column {column_name}: {value!r}. "
+                        f"Row data: {dict(zip([col[0] for col in cursor.description], row))}"
+                    )
+                    # Keep the original string value for debugging
+                    pass
+        
+        d[column_name] = value
     return d
 
 def get_coordinates_from_address(street, city, state, zipcode):
@@ -356,37 +382,42 @@ def init_database():
 
 # --- Initialize Application ---
 def init_app():
-    # Initialize the database
-    init_database()
+    """Initialize application with complete setup sequence"""
+    app.logger.info("Starting application initialization...")
     
-    # Create required directories
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    # Step 1: Initialize database
+    try:
+        init_database()
+        app.logger.info("Database initialized successfully")
+    except Exception as e:
+        app.logger.error(f"Database initialization failed: {e}")
+        raise
     
-    # Enable foreign key support for all connections
+    # Step 2: Create required directories
+    try:
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        app.logger.info(f"Created upload folder: {app.config['UPLOAD_FOLDER']}")
+    except Exception as e:
+        app.logger.error(f"Failed to create upload folder: {e}")
+        raise
+    
+    # Step 3: Enable foreign key support for all connections
     @app.before_request
     def enable_foreign_keys():
         if request.endpoint != 'static_files':  # Skip for static files
             conn = sqlite3.connect(APP_DB)
             conn.execute('PRAGMA foreign_keys = ON')
             conn.close()
-
-def init_app():
-    # Initialize the database
-    init_database()
     
-    # Create required directories
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    
-    # Enable foreign key support for all connections
-    @app.before_request
-    def enable_foreign_keys():
-        if request.endpoint != 'static_files':  # Skip for static files
-            conn = sqlite3.connect(APP_DB)
-            conn.execute('PRAGMA foreign_keys = ON')
-            conn.close()
-    
-    # Load existing complaints into the duplicate detector
-    load_existing_complaints_into_detector()
+    # Step 4: Load existing complaints into the duplicate detector
+    try:
+        load_existing_complaints_into_detector()
+        app.logger.info("Loaded existing complaints into duplicate detector")
+    except Exception as e:
+        app.logger.error(f"Failed to load complaints into detector: {e}")
+        # Don't raise here as this is non-critical
+        
+    app.logger.info("Application initialization completed")
 
 # Initialize the application
 init_app()
@@ -609,6 +640,21 @@ def update_complaint_status(complaint_id):
         conn.execute('UPDATE complaints SET status = ?, remarks = ? WHERE id = ?', 
                     (status, remarks, complaint_id))
         conn.commit()
+        
+        # Create initial chat message for the status update
+        try:
+            chat_ref = db.reference(f'chats/{complaint_id}/messages')
+            if chat_ref.get() is None:
+                chat_ref.push({
+                    'text': f"Status updated to: {status}\nRemarks: {remarks}",
+                    'sender_id': 'admin',
+                    'sender_name': 'Admin',
+                    'timestamp': datetime.datetime.utcnow().isoformat() + "Z"
+                })
+                app.logger.info(f"Initial chat message for complaint #{complaint_id} created.")
+        except Exception as e:
+            app.logger.error(f"Failed to create initial Firebase chat message: {e}")
+    
     flash('Complaint status updated successfully.', 'success')
     return redirect(url_for('admin_dashboard'))
 
@@ -824,6 +870,104 @@ def upvote_complaint(complaint_id):
             conn.rollback()
             app.logger.error(f"Error during upvote for complaint {complaint_id} by user {user_id}: {e}")
             return jsonify({'error': 'An unexpected error occurred.'}), 500
+
+# --- Chat Routes ---
+
+@app.route('/chat/<int:complaint_id>/mark_read', methods=['POST'])
+@login_required
+def mark_chat_as_read(complaint_id):
+    """Updates the last_read timestamp for a user/admin in a chat."""
+    try:
+        # Determine the participant's identifier (e.g., 'admin' or 'user_123')
+        if session.get('is_admin'):
+            participant_id = 'admin'
+        else:
+            participant_id = f"user_{session['user_id']}"
+            
+        # Security check: ensure the user is part of this complaint
+        with sqlite3.connect(APP_DB) as conn:
+            complaint_owner_id = conn.execute(
+                'SELECT user_id FROM complaints WHERE id = ?', (complaint_id,)
+            ).fetchone()
+        
+        if not complaint_owner_id:
+            return jsonify({'error': 'Complaint not found.'}), 404
+            
+        is_owner = (complaint_owner_id[0] == session.get('user_id'))
+        if not session.get('is_admin') and not is_owner:
+            return jsonify({'error': 'Unauthorized.'}), 403
+
+        # Update the last_read timestamp in Firebase
+        now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+        metadata_ref = db.reference(f'chats/{complaint_id}/metadata/{participant_id}')
+        metadata_ref.update({'last_read': now_iso})
+        
+        app.logger.info(f"Chat for complaint {complaint_id} marked as read for {participant_id}.")
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        app.logger.error(f"Failed to mark chat as read for complaint #{complaint_id}: {e}")
+        return jsonify({'error': 'Failed to update read status.'}), 500
+
+@app.route('/chat/<int:complaint_id>/send', methods=['POST'])
+@login_required
+def send_chat_message(complaint_id):
+    data = request.get_json()
+    if not data or 'text' not in data:
+        return jsonify({'error': 'Message text is required.'}), 400
+
+    # Security check: Ensure sender is either admin or complaint owner
+    with sqlite3.connect(APP_DB) as conn:
+        conn.row_factory = dict_factory
+        complaint = conn.execute('SELECT user_id FROM complaints WHERE id = ?', (complaint_id,)).fetchone()
+
+    if not complaint:
+        return jsonify({'error': 'Complaint not found.'}), 404
+
+    is_owner = (complaint['user_id'] == session['user_id'])
+    if not session.get('is_admin') and not is_owner:
+        return jsonify({'error': 'Unauthorized to send messages to this chat.'}), 403
+
+    # Create message data
+    sender_id = f"user_{session['user_id']}" if not session.get('is_admin') else 'admin'
+    sender_name = session.get('username', 'Unknown')
+    
+    message = {
+        'text': data['text'],
+        'sender_id': sender_id,
+        'sender_name': sender_name,
+        'timestamp': datetime.datetime.utcnow().isoformat() + "Z"
+    }
+
+    try:
+        chat_ref = db.reference(f'chats/{complaint_id}/messages')
+        chat_ref.push(message)
+        return jsonify({'success': True, 'message': 'Message sent.'})
+    except Exception as e:
+        app.logger.error(f"Failed to send Firebase message for complaint #{complaint_id}: {e}")
+        return jsonify({'error': 'Failed to send message.'}), 500
+
+@app.route('/chat/<int:complaint_id>/messages', methods=['GET'])
+@login_required
+def get_chat_messages(complaint_id):
+    # Security check: Ensure user is admin or complaint owner
+    with sqlite3.connect(APP_DB) as conn:
+        conn.row_factory = dict_factory
+        complaint = conn.execute('SELECT user_id FROM complaints WHERE id = ?', (complaint_id,)).fetchone()
+
+    if not complaint:
+        return jsonify({'error': 'Complaint not found.'}), 404
+
+    is_owner = (complaint['user_id'] == session['user_id'])
+    if not session.get('is_admin') and not is_owner:
+        return jsonify({'error': 'Unauthorized to view this chat.'}), 403
+
+    try:
+        messages = db.reference(f'chats/{complaint_id}/messages').get()
+        return jsonify(messages or {})
+    except Exception as e:
+        app.logger.error(f"Failed to retrieve Firebase messages for complaint #{complaint_id}: {e}")
+        return jsonify({'error': 'Failed to retrieve messages.'}), 500
 
 # --- NEW: My Complaints Route ---
 @app.route('/my_complaints')

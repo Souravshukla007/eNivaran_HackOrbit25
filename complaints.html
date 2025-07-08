@@ -234,11 +234,18 @@
                                                         <td>
                                                             <div className="small">
                                                                 {complaint.text}
-                                                                {complaint.image && (
-                                                                    <div className="mt-1">
-                                                                        <img src={`data:image/jpeg;base64,${complaint.image}`} alt="Complaint" className="img-thumbnail" style={{maxWidth: "80px"}} />
-                                                                    </div>
-                                                                )}
+                                                {complaint.image && (
+                                                    <div className="mt-1">
+                                                        <img 
+                                                            src={`data:image/jpeg;base64,${complaint.image}`} 
+                                                            alt="Complaint" 
+                                                            className="img-thumbnail" 
+                                                            style={{maxWidth: "80px", cursor: 'pointer'}} 
+                                                            data-bs-toggle="modal" 
+                                                            data-bs-target={`#imageModal-${complaint.id}`}
+                                                        />
+                                                    </div>
+                                                )}
                                                             </div>
                                                         </td>
                                                         <td className="small text-nowrap">
@@ -288,6 +295,29 @@
                                                 ))}
                                             </tbody>
                                         </table>
+
+                                        {/* Image Modals */}
+                                        {complaints.map(complaint => 
+                                            complaint.image && (
+                                                <div key={`modal-${complaint.id}`} className="modal fade" id={`imageModal-${complaint.id}`} tabIndex="-1">
+                                                <div className="modal-dialog modal-lg modal-dialog-centered">
+                                                    <div className="modal-content">
+                                                        <div className="modal-header">
+                                                            <h5 className="modal-title">Complaint #{complaint.id}</h5>
+                                                            <button type="button" className="btn-close" data-bs-dismiss="modal"></button>
+                                                        </div>
+                                                        <div className="modal-body text-center">
+                                                            <img 
+                                                                src={`data:image/jpeg;base64,${complaint.image}`}
+                                                                className="img-fluid" 
+                                                                alt="Full size complaint evidence"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                </div>
+                                            )
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="text-center text-muted p-5">

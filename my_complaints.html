@@ -9,6 +9,62 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css" rel="stylesheet">
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
+    
+    <style>
+        .chat-messages {
+            height: 400px;
+            overflow-y: auto;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 0.5rem;
+        }
+        .chat-message {
+            margin-bottom: 1rem;
+            padding: 0.5rem 1rem;
+            border-radius: 1rem;
+            max-width: 80%;
+        }
+        .chat-message.admin {
+            background: #0d6efd;
+            color: white;
+            margin-left: auto;
+        }
+        .chat-message.user {
+            background: #e9ecef;
+            margin-right: auto;
+        }
+        .chat-message .sender {
+            font-size: 0.8rem;
+            margin-bottom: 0.25rem;
+            opacity: 0.8;
+        }
+        .chat-message .timestamp {
+            font-size: 0.7rem;
+            margin-top: 0.25rem;
+            opacity: 0.6;
+        }
+        /* Notification Badge Style */
+        .chat-btn-container {
+            position: relative;
+            display: inline-block;
+        }
+        .chat-notification-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            padding: 2px 6px;
+            border-radius: 50%;
+            background: red;
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+            display: none; /* Hidden by default */
+        }
+    </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light sticky-top bg-light shadow-sm">
@@ -57,6 +113,7 @@
                                 <th>Status</th>
                                 <th>Admin Remarks</th>
                                 <th>Upvotes</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -105,6 +162,16 @@
                                     <i class="bi bi-hand-thumbs-up text-primary me-1"></i>
                                     {{ complaint.upvotes }}
                                 </td>
+                                <td>
+                                    <div class="chat-btn-container">
+                                        <button class="btn btn-sm btn-outline-primary"
+                                                data-complaint-id="{{ complaint.id }}"
+                                                onclick="openChat(this.dataset.complaintId)">
+                                            <i class="bi bi-chat-dots me-1"></i>Chat
+                                        </button>
+                                        <span class="chat-notification-badge" id="chat-badge-{{ complaint.id }}"></span>
+                                    </div>
+                                </td>
                             </tr>
 
                             <!-- Image Modal -->
@@ -144,6 +211,29 @@
         </div>
     </div>
 
+    <!-- Chat Modal -->
+    <div class="modal fade" id="chatModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Chat - Complaint #<span id="chatComplaintId"></span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="chat-messages" id="chatMessages"></div>
+                    <div class="input-group mt-3">
+                        <input type="text" class="form-control" id="messageInput" 
+                               placeholder="Type your message..." 
+                               onkeypress="if(event.key === 'Enter') sendMessage()">
+                        <button class="btn btn-primary" onclick="sendMessage()">
+                            <i class="bi bi-send"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <footer class="py-5 mt-5 bg-dark">
         <div class="container text-center text-white">
             <p class="mb-0"><small>© {{ now.year }} eNivaran. All Rights Reserved.</small></p>
@@ -152,10 +242,164 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        AOS.init({
-            duration: 800,
-            once: true,
-            offset: 50
+        // Initialize Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyBxLWJqA7cUy2QNz-Ucfg4c5o1SEBw1QTM",
+            authDomain: "enivaran-1e89f.firebaseapp.com",
+            databaseURL: "https://enivaran-1e89f-default-rtdb.firebaseio.com",
+            projectId: "enivaran-1e89f",
+            storageBucket: "enivaran-1e89f.firebasestorage.app",
+            messagingSenderId: "616471588971",
+            appId: "1:616471588971:web:142d14e0dfb2b74fd1812e",
+            measurementId: "G-78GR7H8XSL"
+        };
+        firebase.initializeApp(firebaseConfig);
+        
+        let currentChatRef = null;
+        const chatModal = new bootstrap.Modal(document.getElementById('chatModal'));
+        const currentUserIdentifier = `user_{{ session.user_id }}`;
+        
+        function openChat(complaintId) {
+            // Convert complaintId to number since data attributes are strings
+            complaintId = parseInt(complaintId, 10);
+            
+            // Immediately hide notification badge
+            const badge = document.querySelector(`#chat-badge-${complaintId}`);
+            if (badge) {
+                badge.style.display = 'none';
+                badge.textContent = '0';
+            }
+            
+            // Mark chat as read
+            fetch(`/chat/${complaintId}/mark_read`, { method: 'POST' })
+                .catch(err => console.error('Error marking chat as read:', err));
+            
+            document.getElementById('chatComplaintId').textContent = complaintId;
+            document.getElementById('chatMessages').innerHTML = '';
+            
+            // Unsubscribe from previous chat if any
+            if (currentChatRef) {
+                currentChatRef.off();
+            }
+            
+            // Load existing messages
+            fetch(`/chat/${complaintId}/messages`)
+                .then(response => response.json())
+                .then(messages => {
+                    if (messages && typeof messages === 'object') {
+                        const orderedMessages = Object.values(messages).sort((a, b) => 
+                            new Date(a.timestamp) - new Date(b.timestamp)
+                        );
+                        orderedMessages.forEach(addMessageToUI);
+                    }
+                });
+            
+            // Subscribe to new messages using 'value' listener for robust handling
+            currentChatRef = firebase.database().ref(`chats/${complaintId}/messages`);
+            currentChatRef.on('value', snapshot => {
+                const messagesDiv = document.getElementById('chatMessages');
+                messagesDiv.innerHTML = ''; // Clear previous messages
+                const messages = snapshot.val();
+                if (messages) {
+                    Object.values(messages)
+                          .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+                          .forEach(addMessageToUI);
+                } else {
+                    messagesDiv.innerHTML = '<div class="text-center text-muted p-3">No messages yet.</div>';
+                }
+            });
+            
+            chatModal.show();
+        }
+        
+        function addMessageToUI(message) {
+            const messagesDiv = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${message.sender_id === 'admin' ? 'admin' : 'user'}`;
+            
+            messageDiv.dataset.timestamp = message.timestamp;
+            messageDiv.innerHTML = `
+                <div class="sender">${message.sender_name}</div>
+                <div class="text">${message.text}</div>
+                <div class="timestamp">${new Date(message.timestamp).toLocaleString()}</div>
+            `;
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            const complaintId = document.getElementById('chatComplaintId').textContent;
+            
+            if (text) {
+                fetch(`/chat/${complaintId}/send`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text })
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        input.value = '';
+                    }
+                });
+            }
+        }
+
+        // --- Notification Logic ---
+        function setupNotificationListener(complaintId) {
+            try {
+                const badge = document.querySelector(`#chat-badge-${complaintId}`);
+                if (!badge) return;
+
+                const chatRef = firebase.database().ref(`chats/${complaintId}`);
+                chatRef.on('value', snapshot => {
+                    try {
+                        const chatData = snapshot.val() || {};
+                        const messages = chatData.messages || {};
+                        const metadata = chatData.metadata || {};
+                        
+                        if (Object.keys(messages).length === 0) {
+                            badge.style.display = 'none';
+                            return;
+                        }
+
+                        const lastReadTimestamp = metadata[currentUserIdentifier]?.last_read || '1970-01-01T00:00:00.000Z';
+                        let unreadCount = 0;
+
+                        Object.values(messages).forEach(msg => {
+                            if (msg && msg.sender_id === 'admin' && msg.timestamp > lastReadTimestamp) {
+                                unreadCount++;
+                            }
+                        });
+
+                        badge.textContent = unreadCount.toString();
+                        badge.style.display = unreadCount > 0 ? 'block' : 'none';
+                    } catch (err) {
+                        console.error(`Error processing notifications for complaint ${complaintId}:`, err);
+                        badge.style.display = 'none';
+                    }
+                });
+            } catch (err) {
+                console.error(`Error setting up notification listener for complaint ${complaintId}:`, err);
+            }
+        }
+
+        // Initialize AOS and set up notification listeners for each chat button
+        document.addEventListener('DOMContentLoaded', () => {
+            AOS.init({ duration: 800, once: true, offset: 50 });
+            
+            // Set up individual listeners for each chat button
+            document.querySelectorAll('.chat-btn-container button').forEach(btn => {
+                const complaintId = btn.dataset.complaintId;
+                if (complaintId) {
+                    setupNotificationListener(complaintId);
+                }
+            });
         });
     </script>
 </body>

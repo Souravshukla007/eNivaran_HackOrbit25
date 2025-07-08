@@ -16,8 +16,63 @@
     <!-- AOS Animation Library -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    
+    <!-- Chat-specific styles -->
+    <style>
+        .chat-messages {
+            height: 400px;
+            overflow-y: auto;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 0.5rem;
+        }
+        .chat-message {
+            margin-bottom: 1rem;
+            padding: 0.5rem 1rem;
+            border-radius: 1rem;
+            max-width: 80%;
+        }
+        .chat-message.admin {
+            background: #0d6efd;
+            color: white;
+            margin-left: auto;
+        }
+        .chat-message.user {
+            background: #e9ecef;
+            margin-right: auto;
+        }
+        .chat-message .sender {
+            font-size: 0.8rem;
+            margin-bottom: 0.25rem;
+            opacity: 0.8;
+        }
+        .chat-message .timestamp {
+            font-size: 0.7rem;
+            margin-top: 0.25rem;
+            opacity: 0.6;
+        }
+        /* Notification Badge Style */
+        .chat-btn-container {
+            position: relative;
+            display: inline-block;
+        }
+        .chat-notification-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            padding: 2px 6px;
+            border-radius: 50%;
+            background: red;
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body>
     <div id="app-root"></div>
@@ -47,6 +102,39 @@
             const [messages] = React.useState(window.SERVER_DATA.messages);
             const [loading, setLoading] = React.useState({});
             const [searchId] = React.useState(window.SERVER_DATA.searchId || '');
+            const [notifications, setNotifications] = React.useState({});
+            const currentUserIdentifier = 'admin';
+
+            // --- Notification Logic ---
+            React.useEffect(() => {
+                const chatsRef = firebase.database().ref('chats');
+                const handleData = (snapshot) => {
+                    const allChats = snapshot.val() || {};
+                    const newNotifications = {};
+                    
+                    complaints.forEach(complaint => {
+                        const chatData = allChats[complaint.id];
+                        if (!chatData || !chatData.messages) {
+                            newNotifications[complaint.id] = 0;
+                            return;
+                        }
+
+                        const lastReadTimestamp = chatData.metadata?.[currentUserIdentifier]?.last_read || '1970-01-01T00:00:00.000Z';
+                        let unreadCount = 0;
+
+                        Object.values(chatData.messages).forEach(msg => {
+                            if (msg.sender_id !== currentUserIdentifier && msg.timestamp > lastReadTimestamp) {
+                                unreadCount++;
+                            }
+                        });
+                        newNotifications[complaint.id] = unreadCount;
+                    });
+                    setNotifications(newNotifications);
+                };
+
+                chatsRef.on('value', handleData);
+                return () => chatsRef.off('value', handleData);
+            }, [complaints]);
 
             // --- Event Handlers ---
             const handleDelete = (complaintId) => {
@@ -351,26 +439,34 @@
                                             </thead>
                                             <tbody>
                                                 {complaints.map(complaint => (
-                                                    <tr key={complaint.id} data-aos="fade-up" data-aos-delay={100}>
-                                                        <td>
-                                                            #{complaint.id}
-                                                            {complaint.is_duplicate && (
-                                                                <div className="small text-danger mt-1" title="This report was flagged as a duplicate.">
-                                                                    <i className="bi bi-back me-1"></i>
-                                                                    Duplicate of #{complaint.original_report_id}
-                                                                </div>
-                                                            )}
-                                                        </td>
-                                                        <td>U{complaint.user_id}</td>
-                                                        <td>
-                                                            <div className="small">
-                                                                {complaint.text}
-                                                                {complaint.image && (
-                                                                    <div className="mt-1">
-                                                                        <img src={`data:image/jpeg;base64,${complaint.image}`} alt="Complaint" className="img-thumbnail" style={{maxWidth: "80px"}} />
+                                                    <React.Fragment key={complaint.id}>
+                                                        <tr data-aos="fade-up" data-aos-delay={100}>
+                                                            <td>
+                                                                #{complaint.id}
+                                                                {complaint.is_duplicate && (
+                                                                    <div className="small text-danger mt-1" title="This report was flagged as a duplicate.">
+                                                                        <i className="bi bi-back me-1"></i>
+                                                                        Duplicate of #{complaint.original_report_id}
                                                                     </div>
                                                                 )}
-                                                            </div>
+                                                            </td>
+                                                            <td>U{complaint.user_id}</td>
+                                                            <td>
+                                                                <div className="small">
+                                                                    {complaint.text}
+                                                                    {complaint.image && (
+                                                                        <div className="mt-1">
+                                                                            <img 
+                                                                                src={`data:image/jpeg;base64,${complaint.image}`} 
+                                                                                alt="Complaint" 
+                                                                                className="img-thumbnail" 
+                                                                                style={{maxWidth: "80px", cursor: 'pointer'}} 
+                                                                                data-bs-toggle="modal" 
+                                                                                data-bs-target={`#imageModal-${complaint.id}`}
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                         </td>
                                                         <td className="small text-nowrap">
                                                             {complaint.location_lat.toFixed(4)},<br/>
@@ -445,11 +541,48 @@
                                                                 )}
                                                                 Delete
                                                             </button>
+                                                            {/* Chat Button */}
+                                                            <div className="chat-btn-container w-100 mt-2">
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-sm btn-outline-info w-100"
+                                                                    onClick={() => window.openChat(complaint.id)}
+                                                                >
+                                                                    <i className="bi bi-chat-dots me-1"></i> Chat
+                                                                </button>
+                                                                {notifications[complaint.id] > 0 && 
+                                                                    <span className="chat-notification-badge">{notifications[complaint.id]}</span>
+                                                                }
+                                                            </div>
                                                         </td>
-                                                    </tr>
+                                        </tr>
+                                    </React.Fragment>
                                                 ))}
                                             </tbody>
                                         </table>
+
+                                        {/* Image Modals - Rendered outside table for better structure */}
+                                        {complaints.map(complaint => 
+                                            complaint.image && (
+                                                <div key={`modal-${complaint.id}`} className="modal fade" id={`imageModal-${complaint.id}`} tabIndex="-1">
+                                                    <div className="modal-dialog modal-lg modal-dialog-centered">
+                                                        <div className="modal-content">
+                                                            <div className="modal-header">
+                                                                <h5 className="modal-title">Complaint #{complaint.id}</h5>
+                                                                <button type="button" className="btn-close" data-bs-dismiss="modal"></button>
+                                                            </div>
+                                                            <div className="modal-body text-center">
+                                                                <img 
+                                                                    src={`data:image/jpeg;base64,${complaint.image}`}
+                                                                    className="img-fluid" 
+                                                                    alt="Full size complaint evidence"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="text-center text-muted p-5">
@@ -534,7 +667,146 @@
     </script>
     {% endraw %}
 
+    <!-- Chat Modal -->
+    <div class="modal fade" id="chatModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Chat - Complaint #<span id="chatComplaintId"></span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="chat-messages" id="chatMessages"></div>
+                    <div class="input-group mt-3">
+                        <input type="text" class="form-control" id="messageInput" 
+                               placeholder="Type your message..." 
+                               onkeypress="if(event.key === 'Enter') window.sendMessage()">
+                        <button class="btn btn-primary" onclick="window.sendMessage()">
+                            <i class="bi bi-send"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Bootstrap 5 JS Bundle -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Chat Functionality -->
+    <script>
+        // Initialize Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyBxLWJqA7cUy2QNz-Ucfg4c5o1SEBw1QTM",
+            authDomain: "enivaran-1e89f.firebaseapp.com",
+            databaseURL: "https://enivaran-1e89f-default-rtdb.firebaseio.com",
+            projectId: "enivaran-1e89f",
+            storageBucket: "enivaran-1e89f.firebasestorage.app",
+            messagingSenderId: "616471588971",
+            appId: "1:616471588971:web:142d14e0dfb2b74fd1812e",
+            measurementId: "G-78GR7H8XSL"
+        };
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        
+        let currentChatRef = null;
+        let chatModal;
+
+        document.addEventListener("DOMContentLoaded", () => {
+            chatModal = new bootstrap.Modal(document.getElementById('chatModal'));
+        });
+        
+        window.openChat = function(complaintId) {
+            // Mark chat as read
+            fetch(`/chat/${complaintId}/mark_read`, { method: 'POST' });
+
+            document.getElementById('chatComplaintId').textContent = complaintId;
+            const chatMessagesDiv = document.getElementById('chatMessages');
+            chatMessagesDiv.innerHTML = '<div class="text-center text-muted">Loading messages...</div>';
+            
+            // Unsubscribe from previous chat if any
+            if (currentChatRef) {
+                currentChatRef.off();
+            }
+            
+            // Load existing messages and set up real-time listener
+            fetch(`/chat/${complaintId}/messages`)
+                .then(response => response.json())
+                .then(messages => {
+                    chatMessagesDiv.innerHTML = '';
+                    if (messages && typeof messages === 'object' && Object.keys(messages).length > 0) {
+                        const orderedMessages = Object.values(messages).sort((a, b) => 
+                            new Date(a.timestamp) - new Date(b.timestamp)
+                        );
+                        orderedMessages.forEach(msg => addMessageToUI(msg, false));
+                    } else {
+                        chatMessagesDiv.innerHTML = '<div class="text-center text-muted">No messages yet. Start the conversation!</div>';
+                    }
+                    
+                    // Subscribe to new messages using 'value' listener for robust handling
+                    currentChatRef = firebase.database().ref(`chats/${complaintId}/messages`);
+                    currentChatRef.on('value', snapshot => {
+                        chatMessagesDiv.innerHTML = ''; // Clear previous messages
+                        const messages = snapshot.val();
+                        if (messages) {
+                            Object.values(messages)
+                                  .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+                                  .forEach(msg => addMessageToUI(msg, false));
+                        } else {
+                            chatMessagesDiv.innerHTML = '<div class="text-center text-muted">No messages yet. Start the conversation!</div>';
+                        }
+                    });
+                })
+                .catch(err => {
+                    chatMessagesDiv.innerHTML = '<div class="text-center text-danger">Could not load messages.</div>';
+                });
+            
+            chatModal.show();
+        };
+        
+        function addMessageToUI(message, isNew) {
+            const messagesDiv = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${message.sender_id === 'admin' ? 'admin' : 'user'}`;
+            messageDiv.dataset.timestamp = message.timestamp;
+            
+            messageDiv.innerHTML = `
+                <div class="sender">${message.sender_name}</div>
+                <div class="text">${message.text}</div>
+                <div class="timestamp">${new Date(message.timestamp).toLocaleString()}</div>
+            `;
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        window.sendMessage = function() {
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            const complaintId = document.getElementById('chatComplaintId').textContent;
+            
+            if (text) {
+                input.disabled = true;
+                fetch(`/chat/${complaintId}/send`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        input.value = '';
+                    } else {
+                        alert('Failed to send message: ' + (result.error || 'Unknown error'));
+                    }
+                })
+                .finally(() => {
+                    input.disabled = false;
+                    input.focus();
+                });
+            }
+        };
+    </script>
 </body>
 </html>
