@@ -56,22 +56,6 @@
             margin-top: 0.25rem;
             opacity: 0.6;
         }
-        /* Notification Badge Style */
-        .chat-btn-container {
-            position: relative;
-            display: inline-block;
-        }
-        .chat-notification-badge {
-            position: absolute;
-            top: -8px;
-            right: -8px;
-            padding: 2px 6px;
-            border-radius: 50%;
-            background: red;
-            color: white;
-            font-size: 10px;
-            font-weight: bold;
-        }
     </style>
 </head>
 <body>
@@ -102,39 +86,6 @@
             const [messages] = React.useState(window.SERVER_DATA.messages);
             const [loading, setLoading] = React.useState({});
             const [searchId] = React.useState(window.SERVER_DATA.searchId || '');
-            const [notifications, setNotifications] = React.useState({});
-            const currentUserIdentifier = 'admin';
-
-            // --- Notification Logic ---
-            React.useEffect(() => {
-                const chatsRef = firebase.database().ref('chats');
-                const handleData = (snapshot) => {
-                    const allChats = snapshot.val() || {};
-                    const newNotifications = {};
-                    
-                    complaints.forEach(complaint => {
-                        const chatData = allChats[complaint.id];
-                        if (!chatData || !chatData.messages) {
-                            newNotifications[complaint.id] = 0;
-                            return;
-                        }
-
-                        const lastReadTimestamp = chatData.metadata?.[currentUserIdentifier]?.last_read || '1970-01-01T00:00:00.000Z';
-                        let unreadCount = 0;
-
-                        Object.values(chatData.messages).forEach(msg => {
-                            if (msg.sender_id !== currentUserIdentifier && msg.timestamp > lastReadTimestamp) {
-                                unreadCount++;
-                            }
-                        });
-                        newNotifications[complaint.id] = unreadCount;
-                    });
-                    setNotifications(newNotifications);
-                };
-
-                chatsRef.on('value', handleData);
-                return () => chatsRef.off('value', handleData);
-            }, [complaints]);
 
             // --- Event Handlers ---
             const handleDelete = (complaintId) => {
@@ -542,18 +493,13 @@
                                                                 Delete
                                                             </button>
                                                             {/* Chat Button */}
-                                                            <div className="chat-btn-container w-100 mt-2">
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-sm btn-outline-info w-100"
-                                                                    onClick={() => window.openChat(complaint.id)}
-                                                                >
-                                                                    <i className="bi bi-chat-dots me-1"></i> Chat
-                                                                </button>
-                                                                {notifications[complaint.id] > 0 && 
-                                                                    <span className="chat-notification-badge">{notifications[complaint.id]}</span>
-                                                                }
-                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-sm btn-outline-info w-100 mt-2"
+                                                                onClick={() => window.openChat(complaint.id)}
+                                                            >
+                                                                <i className="bi bi-chat-dots me-1"></i> Chat
+                                                            </button>
                                                         </td>
                                         </tr>
                                     </React.Fragment>
@@ -718,9 +664,6 @@
         });
         
         window.openChat = function(complaintId) {
-            // Mark chat as read
-            fetch(`/chat/${complaintId}/mark_read`, { method: 'POST' });
-
             document.getElementById('chatComplaintId').textContent = complaintId;
             const chatMessagesDiv = document.getElementById('chatMessages');
             chatMessagesDiv.innerHTML = '<div class="text-center text-muted">Loading messages...</div>';
@@ -730,7 +673,8 @@
                 currentChatRef.off();
             }
             
-            // Load existing messages and set up real-time listener
+            let initialLoad = true;
+            // Load existing messages
             fetch(`/chat/${complaintId}/messages`)
                 .then(response => response.json())
                 .then(messages => {
@@ -743,19 +687,25 @@
                     } else {
                         chatMessagesDiv.innerHTML = '<div class="text-center text-muted">No messages yet. Start the conversation!</div>';
                     }
+                    initialLoad = false;
                     
-                    // Subscribe to new messages using 'value' listener for robust handling
-                    currentChatRef = firebase.database().ref(`chats/${complaintId}/messages`);
-                    currentChatRef.on('value', snapshot => {
-                        chatMessagesDiv.innerHTML = ''; // Clear previous messages
-                        const messages = snapshot.val();
-                        if (messages) {
-                            Object.values(messages)
-                                  .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-                                  .forEach(msg => addMessageToUI(msg, false));
-                        } else {
-                            chatMessagesDiv.innerHTML = '<div class="text-center text-muted">No messages yet. Start the conversation!</div>';
+                    // Subscribe to new messages after initial load
+                    currentChatRef = firebase.database().ref(`chats/${complaintId}`);
+                    currentChatRef.on('child_added', (snapshot) => {
+                        if (initialLoad) return;
+                        
+                        const message = snapshot.val();
+                        const existingMessages = chatMessagesDiv.querySelectorAll('.chat-message');
+                        if (existingMessages.length > 0) {
+                             const lastMessageTime = new Date(existingMessages[existingMessages.length - 1].dataset.timestamp);
+                             if (new Date(message.timestamp) <= lastMessageTime) {
+                                 return;
+                             }
                         }
+                        if (chatMessagesDiv.innerText.includes('No messages yet')) {
+                             chatMessagesDiv.innerHTML = '';
+                        }
+                        addMessageToUI(message, true);
                     });
                 })
                 .catch(err => {
