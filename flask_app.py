@@ -11,6 +11,12 @@ import logging
 from flask.logging import default_handler
 import firebase_admin
 from firebase_admin import credentials, db
+# --- NEW IMPORTS ---
+from dotenv import load_dotenv
+import google.generativeai as genai
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -124,6 +130,23 @@ except Exception as e:
 # Initialize the duplicate detector
 detector = get_duplicate_detector(location_threshold=0.1)  # 100-meter threshold
 
+# --- START: AI CHATBOT CONFIGURATION ---
+# IMPORTANT: Store your API key in a .env file in the root directory
+# Create a file named .env and add the following line:
+# GEMINI_API_KEY="YOUR_API_KEY_HERE"
+# You can get a key from Google AI Studio: https://makersuite.google.com/app/apikey
+try:
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY not found. Please create a .env file.")
+    genai.configure(api_key=GEMINI_API_KEY)
+    chat_model = genai.GenerativeModel('gemini-2.5-flash')
+    app.logger.info("Google Gemini AI configured successfully.")
+except Exception as e:
+    app.logger.error(f"Failed to configure Google Gemini AI: {e}")
+    chat_model = None
+# --- END: AI CHATBOT CONFIGURATION ---
+
 def load_existing_complaints_into_detector():
     """
     Loads all existing, non-duplicate complaints from the database into the
@@ -173,6 +196,9 @@ app.json = CustomJSONEncoder(app)
 BASE_DIR = os.path.dirname(__file__)
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# --- NEW: Create a dedicated folder for chat file uploads ---
+CHAT_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'chat_files')
+os.makedirs(CHAT_UPLOAD_FOLDER, exist_ok=True)
 
 app.config.update(
     UPLOAD_FOLDER=UPLOAD_FOLDER,
@@ -233,11 +259,17 @@ if not app.debug:
 APP_DB = os.path.join(BASE_DIR, 'enivaran.db')
 
 def dict_factory(cursor, row):
-    """Convert SQLite Row to dictionary with proper datetime handling"""
+    """
+    Convert SQLite Row to dictionary with improved timestamp handling and error logging.
+    Invalid timestamps are preserved as strings for debugging and logged as warnings.
+    """
     d = {}
     for idx, col in enumerate(cursor.description):
         value = row[idx]
-        if isinstance(value, str) and col[0] in ['submitted_at', 'detected_at', 'created_at', 'last_updated']:
+        column_name = col[0]
+        
+        # Handle timestamp fields
+        if isinstance(value, str) and column_name in ['submitted_at', 'detected_at', 'created_at', 'last_updated']:
             try:
                 # Try parsing with microseconds
                 value = datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S.%f')
@@ -246,8 +278,15 @@ def dict_factory(cursor, row):
                     # Try parsing without microseconds
                     value = datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
                 except ValueError:
-                    value = datetime.datetime.now()
-        d[col[0]] = value
+                    # Log the invalid timestamp and preserve original value
+                    app.logger.warning(
+                        f"Invalid timestamp format in column {column_name}: {value!r}. "
+                        f"Row data: {dict(zip([col[0] for col in cursor.description], row))}"
+                    )
+                    # Keep the original string value for debugging
+                    pass
+        
+        d[column_name] = value
     return d
 
 def get_coordinates_from_address(street, city, state, zipcode):
@@ -369,37 +408,42 @@ def init_database():
 
 # --- Initialize Application ---
 def init_app():
-    # Initialize the database
-    init_database()
+    """Initialize application with complete setup sequence"""
+    app.logger.info("Starting application initialization...")
     
-    # Create required directories
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    # Step 1: Initialize database
+    try:
+        init_database()
+        app.logger.info("Database initialized successfully")
+    except Exception as e:
+        app.logger.error(f"Database initialization failed: {e}")
+        raise
     
-    # Enable foreign key support for all connections
+    # Step 2: Create required directories
+    try:
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        app.logger.info(f"Created upload folder: {app.config['UPLOAD_FOLDER']}")
+    except Exception as e:
+        app.logger.error(f"Failed to create upload folder: {e}")
+        raise
+    
+    # Step 3: Enable foreign key support for all connections
     @app.before_request
     def enable_foreign_keys():
         if request.endpoint != 'static_files':  # Skip for static files
             conn = sqlite3.connect(APP_DB)
             conn.execute('PRAGMA foreign_keys = ON')
             conn.close()
-
-def init_app():
-    # Initialize the database
-    init_database()
     
-    # Create required directories
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    
-    # Enable foreign key support for all connections
-    @app.before_request
-    def enable_foreign_keys():
-        if request.endpoint != 'static_files':  # Skip for static files
-            conn = sqlite3.connect(APP_DB)
-            conn.execute('PRAGMA foreign_keys = ON')
-            conn.close()
-    
-    # Load existing complaints into the duplicate detector
-    load_existing_complaints_into_detector()
+    # Step 4: Load existing complaints into the duplicate detector
+    try:
+        load_existing_complaints_into_detector()
+        app.logger.info("Loaded existing complaints into duplicate detector")
+    except Exception as e:
+        app.logger.error(f"Failed to load complaints into detector: {e}")
+        # Don't raise here as this is non-critical
+        
+    app.logger.info("Application initialization completed")
 
 # Initialize the application
 init_app()
@@ -625,7 +669,7 @@ def update_complaint_status(complaint_id):
         
         # Create initial chat message for the status update
         try:
-            chat_ref = db.reference(f'chats/{complaint_id}')
+            chat_ref = db.reference(f'chats/{complaint_id}/messages')
             if chat_ref.get() is None:
                 chat_ref.push({
                     'text': f"Status updated to: {status}\nRemarks: {remarks}",
@@ -854,6 +898,43 @@ def upvote_complaint(complaint_id):
             return jsonify({'error': 'An unexpected error occurred.'}), 500
 
 # --- Chat Routes ---
+
+@app.route('/chat/<int:complaint_id>/mark_read', methods=['POST'])
+@login_required
+def mark_chat_as_read(complaint_id):
+    """Updates the last_read timestamp for a user/admin in a chat."""
+    try:
+        # Determine the participant's identifier (e.g., 'admin' or 'user_123')
+        if session.get('is_admin'):
+            participant_id = 'admin'
+        else:
+            participant_id = f"user_{session['user_id']}"
+            
+        # Security check: ensure the user is part of this complaint
+        with sqlite3.connect(APP_DB) as conn:
+            complaint_owner_id = conn.execute(
+                'SELECT user_id FROM complaints WHERE id = ?', (complaint_id,)
+            ).fetchone()
+        
+        if not complaint_owner_id:
+            return jsonify({'error': 'Complaint not found.'}), 404
+            
+        is_owner = (complaint_owner_id[0] == session.get('user_id'))
+        if not session.get('is_admin') and not is_owner:
+            return jsonify({'error': 'Unauthorized.'}), 403
+
+        # Update the last_read timestamp in Firebase
+        now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+        metadata_ref = db.reference(f'chats/{complaint_id}/metadata/{participant_id}')
+        metadata_ref.update({'last_read': now_iso})
+        
+        app.logger.info(f"Chat for complaint {complaint_id} marked as read for {participant_id}.")
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        app.logger.error(f"Failed to mark chat as read for complaint #{complaint_id}: {e}")
+        return jsonify({'error': 'Failed to update read status.'}), 500
+
 @app.route('/chat/<int:complaint_id>/send', methods=['POST'])
 @login_required
 def send_chat_message(complaint_id):
@@ -885,7 +966,7 @@ def send_chat_message(complaint_id):
     }
 
     try:
-        chat_ref = db.reference(f'chats/{complaint_id}')
+        chat_ref = db.reference(f'chats/{complaint_id}/messages')
         chat_ref.push(message)
         return jsonify({'success': True, 'message': 'Message sent.'})
     except Exception as e:
@@ -908,11 +989,79 @@ def get_chat_messages(complaint_id):
         return jsonify({'error': 'Unauthorized to view this chat.'}), 403
 
     try:
-        messages = db.reference(f'chats/{complaint_id}').get()
+        messages = db.reference(f'chats/{complaint_id}/messages').get()
         return jsonify(messages or {})
     except Exception as e:
         app.logger.error(f"Failed to retrieve Firebase messages for complaint #{complaint_id}: {e}")
         return jsonify({'error': 'Failed to retrieve messages.'}), 500
+
+# --- NEW: AI Chatbot Routes ---
+@app.route('/chat/ai', methods=['POST'])
+@login_required
+def ai_chat_handler():
+    if not chat_model:
+        return jsonify({'error': 'AI model is not configured on the server.'}), 503
+
+    data = request.get_json()
+    if not data or 'history' not in data or 'message' not in data:
+        return jsonify({'error': 'Invalid request format.'}), 400
+
+    history = data['history']
+    user_message = data['message']
+
+    # Format history for Gemini API
+    gemini_history = []
+    # System instruction for context
+    system_instruction = "You are a helpful AI assistant for eNivaran, a civic issue reporting platform. Your role is to guide users on how to use the platform. Be concise and friendly. You can answer questions about reporting issues (like potholes), checking complaint status, and general platform features. Do not answer questions outside of this scope."
+    
+    # Process history, combining system instruction
+    for i, msg in enumerate(history):
+        role = 'user' if msg['sender'] == 'user' else 'model'
+        # Prepend system instruction to the first user message
+        text = msg['text']
+        if i == 0 and role == 'user':
+            text = f"{system_instruction}\n\nUSER: {text}"
+        
+        gemini_history.append({'role': role, 'parts': [{'text': text}]})
+    
+    try:
+        # Start a chat session with the existing history
+        chat_session = chat_model.start_chat(history=gemini_history)
+        
+        # Send the new message
+        response = chat_session.send_message(user_message)
+        
+        # Return the AI's response text
+        return jsonify({'response': response.text})
+    except Exception as e:
+        app.logger.error(f"Gemini API call failed: {e}")
+        # Provide a user-friendly error
+        return jsonify({'error': 'The AI service is currently unavailable or encountered an error. Please try again later.'}), 500
+
+
+@app.route('/upload_chat_file', methods=['POST'])
+@login_required
+def upload_chat_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part in the request.'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected for uploading.'}), 400
+
+    if file:
+        filename = secure_filename(file.filename)
+        save_path = os.path.join(CHAT_UPLOAD_FOLDER, filename)
+        file.save(save_path)
+        app.logger.info(f"User {session['user_id']} uploaded chat file: {filename}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'File "{filename}" uploaded successfully.',
+            'filename': filename
+        })
+    
+    return jsonify({'error': 'File upload failed.'}), 500
 
 # --- NEW: My Complaints Route ---
 @app.route('/my_complaints')
