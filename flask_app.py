@@ -11,12 +11,6 @@ import logging
 from flask.logging import default_handler
 import firebase_admin
 from firebase_admin import credentials, db
-# --- NEW IMPORTS ---
-from dotenv import load_dotenv
-import google.generativeai as genai
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -117,35 +111,19 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'dev-secret-key-replace-later'
 
 # Initialize Firebase Admin SDK
-try:
-    cred = credentials.Certificate('firebase-service-account.json')
-    firebase_admin.initialize_app(cred, {
-        'databaseURL': 'https://enivaran-1e89f-default-rtdb.firebaseio.com'
-    })
-    app.logger.info("Firebase Admin SDK initialized successfully.")
-except Exception as e:
-    app.logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
-    raise e
+if not firebase_admin._apps:
+    try:
+        cred = credentials.Certificate('firebase-service-account.json')
+        firebase_admin.initialize_app(cred, {
+            'databaseURL': 'https://enivaran-1e89f-default-rtdb.firebaseio.com'
+        }, name='eNivaran')
+        app.logger.info("Firebase Admin SDK initialized successfully.")
+    except Exception as e:
+        app.logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
+        raise e
 
 # Initialize the duplicate detector
 detector = get_duplicate_detector(location_threshold=0.1)  # 100-meter threshold
-
-# --- START: AI CHATBOT CONFIGURATION ---
-# IMPORTANT: Store your API key in a .env file in the root directory
-# Create a file named .env and add the following line:
-# GEMINI_API_KEY="YOUR_API_KEY_HERE"
-# You can get a key from Google AI Studio: https://makersuite.google.com/app/apikey
-try:
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY not found. Please create a .env file.")
-    genai.configure(api_key=GEMINI_API_KEY)
-    chat_model = genai.GenerativeModel('gemini-2.5-flash')
-    app.logger.info("Google Gemini AI configured successfully.")
-except Exception as e:
-    app.logger.error(f"Failed to configure Google Gemini AI: {e}")
-    chat_model = None
-# --- END: AI CHATBOT CONFIGURATION ---
 
 def load_existing_complaints_into_detector():
     """
@@ -196,9 +174,6 @@ app.json = CustomJSONEncoder(app)
 BASE_DIR = os.path.dirname(__file__)
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-# --- NEW: Create a dedicated folder for chat file uploads ---
-CHAT_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'chat_files')
-os.makedirs(CHAT_UPLOAD_FOLDER, exist_ok=True)
 
 app.config.update(
     UPLOAD_FOLDER=UPLOAD_FOLDER,
@@ -994,74 +969,6 @@ def get_chat_messages(complaint_id):
     except Exception as e:
         app.logger.error(f"Failed to retrieve Firebase messages for complaint #{complaint_id}: {e}")
         return jsonify({'error': 'Failed to retrieve messages.'}), 500
-
-# --- NEW: AI Chatbot Routes ---
-@app.route('/chat/ai', methods=['POST'])
-@login_required
-def ai_chat_handler():
-    if not chat_model:
-        return jsonify({'error': 'AI model is not configured on the server.'}), 503
-
-    data = request.get_json()
-    if not data or 'history' not in data or 'message' not in data:
-        return jsonify({'error': 'Invalid request format.'}), 400
-
-    history = data['history']
-    user_message = data['message']
-
-    # Format history for Gemini API
-    gemini_history = []
-    # System instruction for context
-    system_instruction = "You are a helpful AI assistant for eNivaran, a civic issue reporting platform. Your role is to guide users on how to use the platform. Be concise and friendly. You can answer questions about reporting issues (like potholes), checking complaint status, and general platform features. Do not answer questions outside of this scope."
-    
-    # Process history, combining system instruction
-    for i, msg in enumerate(history):
-        role = 'user' if msg['sender'] == 'user' else 'model'
-        # Prepend system instruction to the first user message
-        text = msg['text']
-        if i == 0 and role == 'user':
-            text = f"{system_instruction}\n\nUSER: {text}"
-        
-        gemini_history.append({'role': role, 'parts': [{'text': text}]})
-    
-    try:
-        # Start a chat session with the existing history
-        chat_session = chat_model.start_chat(history=gemini_history)
-        
-        # Send the new message
-        response = chat_session.send_message(user_message)
-        
-        # Return the AI's response text
-        return jsonify({'response': response.text})
-    except Exception as e:
-        app.logger.error(f"Gemini API call failed: {e}")
-        # Provide a user-friendly error
-        return jsonify({'error': 'The AI service is currently unavailable or encountered an error. Please try again later.'}), 500
-
-
-@app.route('/upload_chat_file', methods=['POST'])
-@login_required
-def upload_chat_file():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part in the request.'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected for uploading.'}), 400
-
-    if file:
-        filename = secure_filename(file.filename)
-        save_path = os.path.join(CHAT_UPLOAD_FOLDER, filename)
-        file.save(save_path)
-        app.logger.info(f"User {session['user_id']} uploaded chat file: {filename}")
-        
-        return jsonify({
-            'success': True,
-            'message': f'File "{filename}" uploaded successfully.',
-            'filename': filename
-        })
-    
-    return jsonify({'error': 'File upload failed.'}), 500
 
 # --- NEW: My Complaints Route ---
 @app.route('/my_complaints')

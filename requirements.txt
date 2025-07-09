@@ -5,7 +5,6 @@ Werkzeug>=2.3.0
 python-dotenv>=0.19.0
 SQLAlchemy>=2.0.0
 python-dateutil>=2.8.2
-google-generativeai>=0.4.0
 
 # Image processing
 opencv-python>=4.7.0
@@ -21,7 +20,7 @@ torchvision>=0.15.0
 ultralytics>=8.0.0  # For YOLO v8 implementation
 
 # ONNX runtime and conversion
-onnxruntime==1.16.3  # Latest stable version for improved performance
+onnxruntime  # Latest stable version for improved performance
 onnx>=1.14.0  # Core ONNX package compatible with Python 3.11
 
 # Scientific computing and utilities

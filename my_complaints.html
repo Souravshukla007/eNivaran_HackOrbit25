@@ -1,19 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
     <title>My Complaints - eNivaran</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
-    
+    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-database-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js"></script>
+
     <style>
         .chat-messages {
             height: 400px;
@@ -21,36 +20,7 @@
             padding: 1rem;
             background: #f8f9fa;
             border-radius: 0.5rem;
-        }
-        .chat-message {
-            margin-bottom: 1rem;
-            padding: 0.5rem 1rem;
-            border-radius: 1rem;
-            max-width: 80%;
-        }
-        .chat-message.admin {
-            background: #0d6efd;
-            color: white;
-            margin-left: auto;
-        }
-        .chat-message.user {
-            background: #e9ecef;
-            margin-right: auto;
-        }
-        .chat-message .sender {
-            font-size: 0.8rem;
-            margin-bottom: 0.25rem;
-            opacity: 0.8;
-        }
-        .chat-message .timestamp {
-            font-size: 0.7rem;
-            margin-top: 0.25rem;
-            opacity: 0.6;
-        }
-        /* Notification Badge Style */
-        .chat-btn-container {
-            position: relative;
-            display: inline-block;
+            border: 1px solid #dee2e6;
         }
         .chat-notification-badge {
             position: absolute;
@@ -58,20 +28,188 @@
             right: -8px;
             padding: 2px 6px;
             border-radius: 50%;
-            background: red;
+            background: #dc3545;
             color: white;
             font-size: 10px;
             font-weight: bold;
-            display: none; /* Hidden by default */
+            display: none;
+            min-width: 18px;
+            text-align: center;
+        }
+        .chat-btn-container {
+            position: relative;
+            display: inline-block;
+        }
+        .message {
+            margin-bottom: 1rem;
+            max-width: 70%;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            word-wrap: break-word;
+            clear: both;
+        }
+        .message.admin {
+            background-color: #e9ecef;
+            color: #212529;
+            float: left;
+            margin-right: auto;
+        }
+        .message.user {
+            background-color: #0d6efd;
+            color: white;
+            float: right;
+            margin-left: auto;
+        }
+        .message-text {
+            margin-bottom: 0.5rem;
+        }
+        .message-meta {
+            font-size: 0.75rem;
+            opacity: 0.75;
+            text-align: right;
+        }
+        .message.admin .message-meta {
+            text-align: left;
+        }
+        .messages-container {
+            display: flow-root;
+        }
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100px;
+        }
+        .empty-chat {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: #6c757d;
+        }
+        .complaint-image {
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .complaint-image:hover {
+            transform: scale(1.05);
+        }
+        .table-responsive {
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        .table {
+            margin-bottom: 0;
+        }
+        .table thead th {
+            background-color: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+            font-weight: 600;
+        }
+        .status-badge {
+            font-size: 0.875rem;
+            padding: 0.375rem 0.75rem;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .chat-input-container {
+            padding: 1rem;
+            border-top: 1px solid #dee2e6;
+            background: white;
+            position: relative;
+            z-index: 1;
+        }
+        .chat-input-form {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .chat-input-form input {
+            flex: 1;
+            min-height: 38px;
+            pointer-events: auto;
+            cursor: text;
+        }
+        .modal-body {
+            padding: 0;
+        }
+        .error-message {
+            color: #dc3545;
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+        }
+        .success-message {
+            color: #198754;
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+        }
+        .chat-modal-body {
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 500px;
+            position: relative;
+        }
+        .chat-messages {
+            flex: 1;
+            height: auto;
+            min-height: 300px;
+            overflow-y: auto;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 0;
+            border: none;
+            border-bottom: 1px solid #dee2e6;
+            cursor: default;
+            user-select: text;
+        }
+        .chat-input-form .btn {
+            border-radius: 0.375rem;
+            min-height: 38px;
+            pointer-events: auto;
+            cursor: pointer;
+        }
+        .chat-input-form input {
+            border-radius: 0.375rem;
+        }
+        /* Ensure modal elements are properly layered */
+        .modal {
+            z-index: 1055;
+        }
+        .modal-backdrop {
+            z-index: 1050;
+        }
+        /* Fix any potential overlay issues */
+        .chat-input-form input:focus {
+            outline: none;
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+        }
+        /* Ensure all modal elements are interactive */
+        .modal-content {
+            pointer-events: auto;
+        }
+        .chat-modal-body * {
+            pointer-events: auto;
+        }
+        /* Make sure chat messages area is scrollable */
+        .chat-messages:hover {
+            cursor: default;
+        }
+        /* Ensure input field remains focusable */
+        .chat-input-form input:hover,
+        .chat-input-form input:focus,
+        .chat-input-form input:active {
+            pointer-events: auto !important;
+            cursor: text !important;
         }
     </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light sticky-top bg-light shadow-sm">
         <div class="container">
-            <a class="navbar-brand" href="/">
-                <i class="bi bi-person-check me-2" style="color: #6f42c1;"></i> eNivaran
-            </a>
+            <a class="navbar-brand" href="/"><i class="bi bi-person-check me-2" style="color: #6f42c1;"></i>eNivaran</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -90,14 +228,22 @@
     <div class="container py-5">
         <div class="card shadow-sm border-0" data-aos="fade-up">
             <div class="card-body p-4 p-md-5">
-                <h2 class="card-title mb-4">
-                    <i class="bi bi-person-lines-fill me-2"></i>My Submitted Complaints
-                </h2>
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h2 class="card-title mb-0">
+                        <i class="bi bi-person-lines-fill me-2"></i>My Submitted Complaints
+                    </h2>
+                    <div class="text-muted">
+                        <small>Total: <span id="totalComplaints">0</span> complaints</small>
+                    </div>
+                </div>
                 
                 {% with messages = get_flashed_messages(with_categories=true) %}
                     {% if messages %}
                         {% for category, message in messages %}
-                            <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+                            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
                         {% endfor %}
                     {% endif %}
                 {% endwith %}
@@ -108,127 +254,142 @@
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Details & Image</th>
-                                <th>Date Submitted</th>
+                                <th>Details</th>
+                                <th>Date</th>
                                 <th>Status</th>
-                                <th>Admin Remarks</th>
+                                <th>Remarks</th>
                                 <th>Upvotes</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                        {% for complaint in complaints if complaint %}
-                            <tr data-aos="fade-up" data-aos-delay="{{ loop.index * 50 }}">
+                            {% for complaint in complaints %}
+                            {% if complaint and complaint.id %}
+                            <tr>
                                 <td>
                                     <strong>#{{ complaint.id }}</strong>
-                                    {% if complaint.is_duplicate %}
-                                        <div class="small text-danger mt-1" title="This complaint was marked as a duplicate.">
-                                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                                            Duplicate of #{{ complaint.original_report_id }}
-                                        </div>
-                                    {% endif %}
                                 </td>
                                 <td>
-                                    <p class="small mb-1">{{ complaint.text }}</p>
-                                    {% if complaint.image %}
+                                    <div class="complaint-details">
+                                        <p class="mb-2 text-truncate" style="max-width: 200px;" title="{{ complaint.text }}">
+                                            {{ complaint.text }}
+                                        </p>
+                                        {% if complaint.image %}
                                         <img src="data:image/jpeg;base64,{{ complaint.image }}" 
-                                             class="img-thumbnail" 
-                                             style="max-width: 100px; cursor: pointer;" 
-                                             data-bs-toggle="modal" 
-                                             data-bs-target="#imageModal{{ complaint.id }}" 
-                                             alt="Complaint evidence">
-                                    {% endif %}
-                                </td>
-                                <td class="small text-nowrap">
-                                    {% if complaint.submitted_at %}
-                                        {{ complaint.submitted_at.strftime('%b %d, %Y, %I:%M %p') }}
-                                    {% else %}
-                                        <span class="text-muted">Date not available</span>
-                                    {% endif %}
+                                             class="img-thumbnail complaint-image" 
+                                             style="max-width: 80px; max-height: 80px;"
+                                             alt="Evidence"
+                                             data-image="{{ complaint.image }}"
+                                             data-complaint-id="{{ complaint.id }}"
+                                             onclick="showImageModal(this.dataset.image, this.dataset.complaintId)">
+                                        {% endif %}
+                                    </div>
                                 </td>
                                 <td>
-                                    {% set status_class = {
-                                        'Submitted': 'warning text-dark',
-                                        'Approved': 'success',
-                                        'Rejected': 'danger',
-                                        'On Hold': 'info text-dark'
-                                    } %}
-                                    <span class="badge bg-{{ status_class.get(complaint.status, 'secondary') }}">
+                                    <small>{{ complaint.submitted_at.strftime('%b %d, %Y') }}</small>
+                                </td>
+                                <td>
+                                    <span class="badge status-badge bg-{% if complaint.status == 'Submitted' %}warning{% elif complaint.status == 'Approved' %}success{% elif complaint.status == 'Rejected' %}danger{% elif complaint.status == 'In Progress' %}info{% elif complaint.status == 'Resolved' %}success{% else %}secondary{% endif %}">
                                         {{ complaint.status }}
                                     </span>
                                 </td>
-                                <td class="small"><em>{{ complaint.remarks }}</em></td>
-                                <td class="small text-center fw-bold">
-                                    <i class="bi bi-hand-thumbs-up text-primary me-1"></i>
-                                    {{ complaint.upvotes }}
+                                <td>
+                                    <small>{{ complaint.remarks or 'No remarks' }}</small>
                                 </td>
                                 <td>
-                                    <div class="chat-btn-container">
-                                        <button class="btn btn-sm btn-outline-primary"
-                                                data-complaint-id="{{ complaint.id }}"
-                                                onclick="openChat(this.dataset.complaintId)">
-                                            <i class="bi bi-chat-dots me-1"></i>Chat
-                                        </button>
-                                        <span class="chat-notification-badge" id="chat-badge-{{ complaint.id }}"></span>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-hand-thumbs-up-fill text-success me-1"></i>
+                                        <span class="fw-bold">{{ complaint.upvotes or 0 }}</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="action-buttons">
+                                        <div class="chat-btn-container">
+                                            <button type="button" 
+                                                    class="btn btn-sm btn-outline-primary"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#chatModal{{ complaint.id }}"
+                                                    data-complaint-id="{{ complaint.id }}"
+                                                    onclick="openChat(this.dataset.complaintId)">
+                                                <i class="bi bi-chat-dots me-1"></i>Chat
+                                            </button>
+                                            <span class="chat-notification-badge" id="chatBadge{{ complaint.id }}"></span>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>
-
-                            <!-- Image Modal -->
-                            <div class="modal fade" id="imageModal{{ complaint.id }}" tabindex="-1">
-                                <div class="modal-dialog modal-lg modal-dialog-centered">
-                                    <div class="modal-content">
-                                        <div class="modal-header">
-                                            <h5 class="modal-title">Complaint #{{ complaint.id }}</h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                        </div>
-                                        <div class="modal-body text-center">
-                                            {% if complaint.image %}
-                                                <img src="data:image/jpeg;base64,{{ complaint.image }}" 
-                                                     class="img-fluid" 
-                                                     alt="Full size complaint evidence">
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        {% endfor %}
+                            {% endif %}
+                            {% endfor %}
                         </tbody>
                     </table>
                 </div>
-                {% else %}
-                    <div class="text-center text-muted p-5">
-                        <i class="bi bi-inbox display-1 mb-3 d-block"></i>
-                        <h4>You haven't submitted any complaints yet.</h4>
-                        <p class="mt-3">
-                            <a href="/tools" class="btn btn-primary">
-                                <i class="bi bi-plus-lg me-1"></i>Submit a New Complaint
-                            </a>
-                        </p>
+
+                <!-- Chat Modals -->
+                {% for complaint in complaints %}
+                {% if complaint and complaint.id %}
+                <div class="modal fade" id="chatModal{{ complaint.id }}" tabindex="-1">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">
+                                    <i class="bi bi-chat-dots-fill me-2"></i>
+                                    Chat - Complaint #{{ complaint.id }}
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body chat-modal-body">
+                                <div id="chatMessages{{ complaint.id }}" class="chat-messages">
+                                    <div class="loading-spinner">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="chat-input-container">
+                                    <form data-complaint-id="{{ complaint.id }}" onsubmit="return handleSendMessage(event, this.dataset.complaintId)" class="chat-input-form">
+                                        <input type="text" 
+                                               class="form-control"
+                                               id="messageInput{{ complaint.id }}"
+                                               placeholder="Type your message..."
+                                               maxlength="500"
+                                               required>
+                                        <button type="submit" class="btn btn-primary" id="sendBtn{{ complaint.id }}">
+                                            <i class="bi bi-send-fill"></i>
+                                        </button>
+                                    </form>
+                                    <div id="chatError{{ complaint.id }}" class="error-message" style="display: none;"></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+
+                {% else %}
+                <div class="text-center text-muted p-5">
+                    <i class="bi bi-inbox display-1 mb-3"></i>
+                    <h4>No complaints submitted yet</h4>
+                    <p class="mb-4">Start by submitting your first complaint to make your community better.</p>
+                    <a href="/tools" class="btn btn-primary">
+                        <i class="bi bi-plus-circle me-2"></i>Submit a Complaint
+                    </a>
+                </div>
                 {% endif %}
             </div>
         </div>
     </div>
 
-    <!-- Chat Modal -->
-    <div class="modal fade" id="chatModal" tabindex="-1">
+    <!-- Image Modal -->
+    <div class="modal fade" id="imageModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Chat - Complaint #<span id="chatComplaintId"></span></h5>
+                    <h5 class="modal-title">Complaint Evidence</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body">
-                    <div class="chat-messages" id="chatMessages"></div>
-                    <div class="input-group mt-3">
-                        <input type="text" class="form-control" id="messageInput" 
-                               placeholder="Type your message..." 
-                               onkeypress="if(event.key === 'Enter') sendMessage()">
-                        <button class="btn btn-primary" onclick="sendMessage()">
-                            <i class="bi bi-send"></i>
-                        </button>
-                    </div>
+                <div class="modal-body text-center">
+                    <img id="modalImage" class="img-fluid" alt="Evidence">
                 </div>
             </div>
         </div>
@@ -236,171 +397,460 @@
 
     <footer class="py-5 mt-5 bg-dark">
         <div class="container text-center text-white">
-            <p class="mb-0"><small>© {{ now.year }} eNivaran. All Rights Reserved.</small></p>
+            <p class="mb-0"><small>© {{ now.year }} eNivaran. All rights reserved.</small></p>
         </div>
     </footer>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Template data script -->
+    <script type="application/json" id="template-data">
+        {
+            "currentUserId": {{ session.get('user_id', 'null') | tojson }},
+            "complaints": {{ complaints | tojson if complaints else '[]' }}
+        }
+    </script>
     <script>
+        // Template data passed from server
+        window.templateData = JSON.parse(document.getElementById('template-data').textContent);
+    </script>
+
+    <script>
+        // Global variables
+        var firebaseInitialized = false;
+        var chatListeners = {};
+        var currentUserId = window.templateData.currentUserId;
+        var complaintsData = window.templateData.complaints || [];
+
         // Initialize Firebase
-        const firebaseConfig = {
-            apiKey: "AIzaSyBxLWJqA7cUy2QNz-Ucfg4c5o1SEBw1QTM",
-            authDomain: "enivaran-1e89f.firebaseapp.com",
-            databaseURL: "https://enivaran-1e89f-default-rtdb.firebaseio.com",
-            projectId: "enivaran-1e89f",
-            storageBucket: "enivaran-1e89f.firebasestorage.app",
-            messagingSenderId: "616471588971",
-            appId: "1:616471588971:web:142d14e0dfb2b74fd1812e",
-            measurementId: "G-78GR7H8XSL"
-        };
-        firebase.initializeApp(firebaseConfig);
-        
-        let currentChatRef = null;
-        const chatModal = new bootstrap.Modal(document.getElementById('chatModal'));
-        const currentUserIdentifier = `user_{{ session.user_id }}`;
-        
-        function openChat(complaintId) {
-            // Convert complaintId to number since data attributes are strings
-            complaintId = parseInt(complaintId, 10);
+        function initializeFirebase() {
+            if (firebaseInitialized) return;
             
-            // Immediately hide notification badge
-            const badge = document.querySelector(`#chat-badge-${complaintId}`);
-            if (badge) {
-                badge.style.display = 'none';
-                badge.textContent = '0';
-            }
-            
-            // Mark chat as read
-            fetch(`/chat/${complaintId}/mark_read`, { method: 'POST' })
-                .catch(err => console.error('Error marking chat as read:', err));
-            
-            document.getElementById('chatComplaintId').textContent = complaintId;
-            document.getElementById('chatMessages').innerHTML = '';
-            
-            // Unsubscribe from previous chat if any
-            if (currentChatRef) {
-                currentChatRef.off();
-            }
-            
-            // Load existing messages
-            fetch(`/chat/${complaintId}/messages`)
-                .then(response => response.json())
-                .then(messages => {
-                    if (messages && typeof messages === 'object') {
-                        const orderedMessages = Object.values(messages).sort((a, b) => 
-                            new Date(a.timestamp) - new Date(b.timestamp)
-                        );
-                        orderedMessages.forEach(addMessageToUI);
-                    }
+            try {
+                firebase.initializeApp({
+                    apiKey: "AIzaSyBxLWJqA7cUy2QNz-Ucfg4c5o1SEBw1QTM",
+                    authDomain: "enivaran-1e89f.firebaseapp.com",
+                    databaseURL: "https://enivaran-1e89f-default-rtdb.firebaseio.com",
+                    projectId: "enivaran-1e89f",
+                    storageBucket: "enivaran-1e89f.firebasestorage.app",
+                    messagingSenderId: "616471588971",
+                    appId: "1:616471588971:web:142d14e0dfb2b74fd1812e"
                 });
+                firebaseInitialized = true;
+                console.log('Firebase initialized successfully');
+            } catch (error) {
+                console.error('Firebase initialization error:', error);
+            }
+        }
+
+        // Utility functions
+        function showImageModal(imageData, complaintId) {
+            var modal = new bootstrap.Modal(document.getElementById('imageModal'));
+            var modalImage = document.getElementById('modalImage');
+            modalImage.src = 'data:image/jpeg;base64,' + imageData;
+            modal.show();
+        }
+
+        function formatTimestamp(timestamp) {
+            try {
+                var date = new Date(timestamp);
+                if (isNaN(date.getTime())) {
+                    return 'Invalid date';
+                }
+                return date.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                });
+            } catch (error) {
+                console.error('Date formatting error:', error);
+                return 'Invalid date';
+            }
+        }
+
+        function createMessage(msg) {
+            if (!msg || !msg.text || !msg.sender_id) {
+                console.error('Invalid message data:', msg);
+                return null;
+            }
             
-            // Subscribe to new messages using 'value' listener for robust handling
-            currentChatRef = firebase.database().ref(`chats/${complaintId}/messages`);
-            currentChatRef.on('value', snapshot => {
-                const messagesDiv = document.getElementById('chatMessages');
-                messagesDiv.innerHTML = ''; // Clear previous messages
-                const messages = snapshot.val();
-                if (messages) {
-                    Object.values(messages)
-                          .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-                          .forEach(addMessageToUI);
-                } else {
-                    messagesDiv.innerHTML = '<div class="text-center text-muted p-3">No messages yet.</div>';
+            var div = document.createElement('div');
+            div.className = 'message ' + (msg.sender_id === 'admin' ? 'admin' : 'user');
+            
+            var messageText = document.createElement('div');
+            messageText.className = 'message-text';
+            messageText.textContent = msg.text;
+            
+            var messageMeta = document.createElement('div');
+            messageMeta.className = 'message-meta';
+            
+            // Display name logic
+            var displayName = msg.sender_name || msg.sender_id;
+            if (msg.sender_id === 'admin') {
+                displayName = 'Admin';
+            } else if (msg.sender_id.indexOf('user_') === 0) {
+                displayName = 'You';
+            }
+            
+            messageMeta.innerHTML = '<strong>' + displayName + '</strong> • ' + formatTimestamp(msg.timestamp);
+            
+            div.appendChild(messageText);
+            div.appendChild(messageMeta);
+            
+            return div;
+        }
+
+        function updateMessages(complaintId, snapshot) {
+            var messagesDiv = document.getElementById('chatMessages' + complaintId);
+            if (!messagesDiv) {
+                console.error('Messages container not found for complaint:', complaintId);
+                return;
+            }
+
+            var data = snapshot.val() || {};
+            var messages = [];
+            
+            Object.keys(data).forEach(function(key) {
+                var msg = data[key];
+                if (msg && msg.text && msg.sender_id) {
+                    msg.id = key;
+                    messages.push(msg);
+                }
+            });
+
+            // Sort messages by timestamp
+            messages.sort(function(a, b) {
+                var dateA = new Date(a.timestamp);
+                var dateB = new Date(b.timestamp);
+                return dateA - dateB;
+            });
+
+            // Clear existing messages
+            messagesDiv.innerHTML = '';
+
+            if (messages.length === 0) {
+                messagesDiv.innerHTML = '<div class="empty-chat"><i class="bi bi-chat-dots display-4 mb-3"></i><p>No messages yet. Start the conversation!</p></div>';
+                return;
+            }
+
+            var messagesContainer = document.createElement('div');
+            messagesContainer.className = 'messages-container';
+
+            messages.forEach(function(msg) {
+                var messageElement = createMessage(msg);
+                if (messageElement) {
+                    messagesContainer.appendChild(messageElement);
+                }
+            });
+
+            messagesDiv.appendChild(messagesContainer);
+            
+            // Scroll to bottom
+            setTimeout(function() {
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }, 100);
+        }
+
+        function updateBadge(complaintId, snapshot) {
+            var badge = document.getElementById('chatBadge' + complaintId);
+            if (!badge) return;
+
+            var currentUserIdentifier = 'user_' + currentUserId;
+            var chatData = snapshot.val() || {};
+            var messages = chatData.messages || {};
+            var metadata = chatData.metadata || {};
+            
+            var lastRead = '1970-01-01T00:00:00Z';
+            
+            if (metadata[currentUserIdentifier] && metadata[currentUserIdentifier].last_read) {
+                lastRead = metadata[currentUserIdentifier].last_read;
+            }
+            
+            var unreadCount = 0;
+            Object.keys(messages).forEach(function(key) {
+                var msg = messages[key];
+                if (msg && msg.sender_id === 'admin' && msg.timestamp > lastRead) {
+                    unreadCount++;
                 }
             });
             
-            chatModal.show();
-        }
-        
-        function addMessageToUI(message) {
-            const messagesDiv = document.getElementById('chatMessages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `chat-message ${message.sender_id === 'admin' ? 'admin' : 'user'}`;
-            
-            messageDiv.dataset.timestamp = message.timestamp;
-            messageDiv.innerHTML = `
-                <div class="sender">${message.sender_name}</div>
-                <div class="text">${message.text}</div>
-                <div class="timestamp">${new Date(message.timestamp).toLocaleString()}</div>
-            `;
-            
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        }
-        
-        function sendMessage() {
-            const input = document.getElementById('messageInput');
-            const text = input.value.trim();
-            const complaintId = document.getElementById('chatComplaintId').textContent;
-            
-            if (text) {
-                fetch(`/chat/${complaintId}/send`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ text })
-                })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        input.value = '';
-                    }
-                });
-            }
+            badge.textContent = unreadCount;
+            badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
         }
 
-        // --- Notification Logic ---
-        function setupNotificationListener(complaintId) {
+        function setupChat(complaintId) {
+            if (!firebaseInitialized) {
+                console.error('Firebase not initialized');
+                return;
+            }
+
             try {
-                const badge = document.querySelector(`#chat-badge-${complaintId}`);
-                if (!badge) return;
-
-                const chatRef = firebase.database().ref(`chats/${complaintId}`);
-                chatRef.on('value', snapshot => {
-                    try {
-                        const chatData = snapshot.val() || {};
-                        const messages = chatData.messages || {};
-                        const metadata = chatData.metadata || {};
-                        
-                        if (Object.keys(messages).length === 0) {
-                            badge.style.display = 'none';
-                            return;
+                // Remove existing listeners
+                if (chatListeners[complaintId]) {
+                    chatListeners[complaintId].forEach(function(listener) {
+                        try {
+                            listener.off();
+                        } catch (e) {
+                            console.error('Error removing listener:', e);
                         }
+                    });
+                }
+                chatListeners[complaintId] = [];
 
-                        const lastReadTimestamp = metadata[currentUserIdentifier]?.last_read || '1970-01-01T00:00:00.000Z';
-                        let unreadCount = 0;
+                // Messages listener
+                var messagesRef = firebase.database().ref('chats/' + complaintId + '/messages');
+                messagesRef.on('value', 
+                    function(snapshot) { updateMessages(complaintId, snapshot); },
+                    function(error) { console.error('Messages listener error:', error); }
+                );
+                chatListeners[complaintId].push(messagesRef);
 
-                        Object.values(messages).forEach(msg => {
-                            if (msg && msg.sender_id === 'admin' && msg.timestamp > lastReadTimestamp) {
-                                unreadCount++;
-                            }
-                        });
+                // Badge listener
+                var chatRef = firebase.database().ref('chats/' + complaintId);
+                chatRef.on('value', 
+                    function(snapshot) { updateBadge(complaintId, snapshot); },
+                    function(error) { console.error('Badge listener error:', error); }
+                );
+                chatListeners[complaintId].push(chatRef);
 
-                        badge.textContent = unreadCount.toString();
-                        badge.style.display = unreadCount > 0 ? 'block' : 'none';
-                    } catch (err) {
-                        console.error(`Error processing notifications for complaint ${complaintId}:`, err);
-                        badge.style.display = 'none';
-                    }
-                });
-            } catch (err) {
-                console.error(`Error setting up notification listener for complaint ${complaintId}:`, err);
+                console.log('Chat setup completed for complaint:', complaintId);
+
+            } catch (error) {
+                console.error('Error setting up chat for complaint ' + complaintId + ':', error);
             }
         }
 
-        // Initialize AOS and set up notification listeners for each chat button
-        document.addEventListener('DOMContentLoaded', () => {
-            AOS.init({ duration: 800, once: true, offset: 50 });
+        function openChat(complaintId) {
+            // Convert to number if it's a string
+            complaintId = parseInt(complaintId) || complaintId;
+            console.log('Opening chat for complaint:', complaintId);
+            markAsRead(complaintId);
             
-            // Set up individual listeners for each chat button
-            document.querySelectorAll('.chat-btn-container button').forEach(btn => {
-                const complaintId = btn.dataset.complaintId;
-                if (complaintId) {
-                    setupNotificationListener(complaintId);
+            // Setup chat if not already done
+            if (!chatListeners[complaintId]) {
+                setupChat(complaintId);
+            }
+            
+            // Focus the input field when modal opens
+            setTimeout(function() {
+                var input = document.getElementById('messageInput' + complaintId);
+                if (input) {
+                    input.focus();
+                }
+            }, 500);
+        }
+
+        function handleSendMessage(event, complaintId) {
+            event.preventDefault();
+            
+            // Convert to number if it's a string
+            complaintId = parseInt(complaintId) || complaintId;
+            
+            var input = document.getElementById('messageInput' + complaintId);
+            var sendBtn = document.getElementById('sendBtn' + complaintId);
+            var errorDiv = document.getElementById('chatError' + complaintId);
+            
+            if (!input || !sendBtn) {
+                console.error('Chat elements not found for complaint:', complaintId);
+                return false;
+            }
+            
+            var text = input.value.trim();
+            if (!text) {
+                console.log('Empty message, not sending');
+                return false;
+            }
+            
+            console.log('Sending message for complaint:', complaintId, 'Text:', text);
+            
+            // Disable send button and show loading
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+            if (errorDiv) {
+                errorDiv.style.display = 'none';
+            }
+            
+            // Create the request
+            var requestData = {
+                text: text,
+                sender_id: 'user_' + currentUserId,
+                timestamp: new Date().toISOString()
+            };
+            
+            console.log('Sending request:', requestData);
+            
+            fetch('/chat/' + complaintId + '/send', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify(requestData)
+            })
+            .then(function(response) {
+                console.log('Response status:', response.status);
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                }
+                return response.json();
+            })
+            .then(function(data) {
+                console.log('Response data:', data);
+                if (data.success) {
+                    input.value = '';
+                    console.log('Message sent successfully');
+                } else {
+                    throw new Error(data.error || 'Failed to send message');
+                }
+            })
+            .catch(function(error) {
+                console.error('Send error:', error);
+                if (errorDiv) {
+                    errorDiv.textContent = 'Failed to send message: ' + error.message;
+                    errorDiv.style.display = 'block';
+                }
+            })
+            .finally(function() {
+                // Re-enable send button
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '<i class="bi bi-send-fill"></i>';
+            });
+            
+            return false;
+        }
+
+        function markAsRead(complaintId) {
+            // Convert to number if it's a string
+            complaintId = parseInt(complaintId) || complaintId;
+            fetch('/chat/' + complaintId + '/mark_read', {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(function(response) {
+                if (!response.ok) {
+                    throw new Error('Mark read failed');
+                }
+                return response.json();
+            })
+            .then(function(data) {
+                console.log('Mark read successful:', data);
+            })
+            .catch(function(error) {
+                console.error('Mark read error:', error);
+            });
+        }
+
+        // Initialize everything when DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM Content Loaded');
+            
+            try {
+                // Initialize Firebase
+                initializeFirebase();
+                
+                // Validate complaints data
+                if (!Array.isArray(complaintsData)) {
+                    console.error('Invalid complaints data:', complaintsData);
+                    complaintsData = [];
+                }
+                
+                console.log('Loaded complaints data:', complaintsData);
+                
+                // Update total count
+                var totalElement = document.getElementById('totalComplaints');
+                if (totalElement) {
+                    totalElement.textContent = complaintsData.length;
+                }
+                
+                // Setup chat for each complaint
+                complaintsData.forEach(function(complaint) {
+                    if (complaint && complaint.id) {
+                        console.log('Setting up chat for complaint:', complaint.id);
+                        setupChat(complaint.id);
+                        
+                        // Add modal event listeners for each chat modal
+                        var modal = document.getElementById('chatModal' + complaint.id);
+                        if (modal) {
+                            modal.addEventListener('shown.bs.modal', function() {
+                                var input = document.getElementById('messageInput' + complaint.id);
+                                if (input) {
+                                    setTimeout(function() {
+                                        input.focus();
+                                        input.click();
+                                    }, 100);
+                                }
+                            });
+                            
+                            // Add click handlers to maintain focus and interaction
+                            modal.addEventListener('click', function(e) {
+                                // Prevent modal from losing focus when clicking inside
+                                e.stopPropagation();
+                            });
+                            
+                            // Ensure chat messages area remains scrollable
+                            var chatMessages = document.getElementById('chatMessages' + complaint.id);
+                            if (chatMessages) {
+                                chatMessages.addEventListener('click', function(e) {
+                                    e.stopPropagation();
+                                    // Re-enable scrolling if it was disabled
+                                    this.style.pointerEvents = 'auto';
+                                    this.style.overflowY = 'auto';
+                                });
+                            }
+                            
+                            // Ensure input field remains focusable
+                            var input = document.getElementById('messageInput' + complaint.id);
+                            if (input) {
+                                input.addEventListener('click', function(e) {
+                                    e.stopPropagation();
+                                    this.focus();
+                                });
+                                
+                                // Re-focus input when clicking anywhere in the input container
+                                var inputContainer = input.closest('.chat-input-container');
+                                if (inputContainer) {
+                                    inputContainer.addEventListener('click', function(e) {
+                                        if (e.target !== input) {
+                                            input.focus();
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Initialize AOS animations
+                if (typeof AOS !== 'undefined') {
+                    AOS.init({ duration: 800, once: true });
+                }
+                
+                console.log('Initialization completed');
+                
+            } catch (error) {
+                console.error('Initialization error:', error);
+            }
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            console.log('Page unloading, cleaning up listeners');
+            Object.keys(chatListeners).forEach(function(complaintId) {
+                if (chatListeners[complaintId]) {
+                    chatListeners[complaintId].forEach(function(listener) {
+                        try {
+                            listener.off();
+                        } catch (e) {
+                            console.error('Error removing listener:', e);
+                        }
+                    });
                 }
             });
         });
     </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
